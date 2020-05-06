@@ -9,6 +9,7 @@ Environment Variables
 | `QUEUE_ENDPOINT`                   | String  | eg: `http://localhost:9324`                             |
 | `ZABBIX_HOST`                      | String  | eg: `172.17.0.1`                                        |
 | `ZABBIX_PORT`                      | Integer | eg: `10051`, default: `10051`                           |
+| `ZABBIX_TARGET_HOST`               | String  | eg: `host`                                              |
 | `ZABBIX_AUTO_DISCOVERY_KEY_NAME`   | String  | default: `elasticmq.queue.discovery`                    |
 | `ZABBIX_ITEM_KEY_NAME`             | String  | default: `elasticmq.queue`                              |
 | `INTERVAL`                         | Integer | Specify the number of seconds. eg: `300` default: `300` |

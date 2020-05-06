@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -19,6 +20,7 @@ type config struct {
 	queueEndpoint              string
 	zabbixHost                 string
 	zabbixPort                 int
+	zabbixTargetHost           string
 	zabbixAutoDiscoveryKeyName string
 	zabbixItemKeyName          string
 	interval                   int
@@ -55,6 +57,7 @@ func newConfig() *config {
 		queueEndpoint:              getEnvString("QUEUE_ENDPOINT", ""),
 		zabbixHost:                 getEnvString("ZABBIX_HOST", ""),
 		zabbixPort:                 getEnvInt("ZABBIX_PORT", 10051),
+		zabbixTargetHost:           getEnvString("ZABBIX_TARGET_HOST", ""),
 		zabbixAutoDiscoveryKeyName: getEnvString("ZABBIX_AUTO_DISCOVERY_KEY_NAME", "elasticmq.queue.discovery"),
 		zabbixItemKeyName:          getEnvString("ZABBIX_ITEM_KEY_NAME", "elasticmq.queue"),
 		interval:                   getEnvInt("INTERVAL", 300),
@@ -84,14 +87,20 @@ func newSqs(config *config) *sqsClient {
 	}
 }
 
-func (c *sqsClient) listQueues() ([]*string, error) {
+func (c *sqsClient) listQueues() (map[string]*string, error) {
 	res, err := c.sqs.ListQueues(nil)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return res.QueueUrls, nil
+	m := map[string]*string{}
+
+	for _, url := range res.QueueUrls {
+		m[filepath.Base(*url)] = url
+	}
+
+	return m, nil
 }
 
 func (c *sqsClient) getQueueAttributes(url *string) (map[string]*string, error) {
@@ -128,7 +137,7 @@ type monitor struct {
 	config *config
 	sqs    *sqsClient
 	sender *zabbix.Sender
-	queues []*string
+	queues map[string]*string
 }
 
 func newMonitor(config *config) (*monitor, error) {
@@ -151,7 +160,7 @@ func newMonitor(config *config) (*monitor, error) {
 func (m *monitor) autoDiscovery() (*string, error) {
 	var metrics []*zabbix.Metric
 
-	for _, url := range m.queues {
+	for name, url := range m.queues {
 		attrs, err := m.sqs.getQueueAttributes(url)
 
 		if err != nil {
@@ -163,7 +172,7 @@ func (m *monitor) autoDiscovery() (*string, error) {
 				autoDiscoveryData{
 					Data: []autoDiscoveryItem{
 						{
-							Queue: *url,
+							Queue: name,
 							Item:  attr,
 						},
 					},
@@ -171,7 +180,7 @@ func (m *monitor) autoDiscovery() (*string, error) {
 			)
 
 			metrics = append(metrics, zabbix.NewMetric(
-				"Application",
+				m.config.zabbixTargetHost,
 				m.config.zabbixAutoDiscoveryKeyName,
 				string(json),
 			))
@@ -184,7 +193,7 @@ func (m *monitor) autoDiscovery() (*string, error) {
 func (m *monitor) exec() (*string, error) {
 	var metrics []*zabbix.Metric
 
-	for _, url := range m.queues {
+	for name, url := range m.queues {
 		attrs, err := m.sqs.getQueueAttributes(url)
 
 		if err != nil {
@@ -193,8 +202,8 @@ func (m *monitor) exec() (*string, error) {
 
 		for attr, value := range attrs {
 			metrics = append(metrics, zabbix.NewMetric(
-				"Application",
-				fmt.Sprintf("%s[%s,%s]", m.config.zabbixItemKeyName, *url, attr),
+				m.config.zabbixTargetHost,
+				fmt.Sprintf("%s[%s,%s]", m.config.zabbixItemKeyName, name, attr),
 				*value,
 			))
 		}
